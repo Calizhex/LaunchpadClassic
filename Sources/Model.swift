@@ -70,14 +70,24 @@ private struct Press {
     var longFired: Bool
 }
 
-// MARK: - Geometria siatki (7 × 5, jak w klasycznym Launchpadzie)
+// MARK: - Geometria siatki (domyślnie 7 × 5, jak w klasycznym Launchpadzie)
 
 struct GridMetrics {
-    static let columns = 7
-    static let rows = 5
-    static var perPage: Int { columns * rows }
-
     let size: CGSize
+    let columns: Int
+    let rows: Int
+    let iconScale: CGFloat
+    let fontSize: CGFloat
+
+    init(size: CGSize, appearance: AppearanceSettings) {
+        self.size = size
+        self.columns = max(appearance.columns, 1)
+        self.rows = max(appearance.rows, 1)
+        self.iconScale = CGFloat(appearance.iconScale)
+        self.fontSize = CGFloat(appearance.labelFontSize)
+    }
+
+    var perPage: Int { columns * rows }
 
     var gridRect: CGRect {
         let top = size.height * 0.13
@@ -89,19 +99,25 @@ struct GridMetrics {
     }
 
     var cellSize: CGSize {
-        CGSize(width: gridRect.width / CGFloat(Self.columns),
-               height: gridRect.height / CGFloat(Self.rows))
+        CGSize(width: gridRect.width / CGFloat(columns),
+               height: gridRect.height / CGFloat(rows))
     }
 
-    var iconSize: CGFloat { floor(min(cellSize.width * 0.62, cellSize.height * 0.6, 136)) }
-    var labelFont: CGFloat { min(max(iconSize * 0.15, 11), 14) }
-    var labelSpacing: CGFloat { max(iconSize * 0.08, 5) }
+    var labelFont: CGFloat { fontSize }
     var labelHeight: CGFloat { ceil(labelFont * 1.3) }
+
+    var iconSize: CGFloat {
+        let auto = min(cellSize.width * 0.62, cellSize.height * 0.6, 136)
+        let maxFit = min(cellSize.width * 0.92, cellSize.height - labelHeight - 10)
+        return floor(max(16, min(auto * iconScale, maxFit)))
+    }
+
+    var labelSpacing: CGFloat { max(iconSize * 0.08, 5) }
     var iconCenterOffset: CGFloat { (labelSpacing + labelHeight) / 2 }
 
     func cellCenter(_ i: Int) -> CGPoint {
-        let c = i % Self.columns
-        let r = i / Self.columns
+        let c = i % columns
+        let r = i / columns
         return CGPoint(x: gridRect.minX + (CGFloat(c) + 0.5) * cellSize.width,
                        y: gridRect.minY + (CGFloat(r) + 0.5) * cellSize.height)
     }
@@ -114,9 +130,9 @@ struct GridMetrics {
     func cellIndex(at p: CGPoint) -> Int? {
         let r = gridRect
         guard r.contains(p) else { return nil }
-        let col = min(max(Int((p.x - r.minX) / cellSize.width), 0), Self.columns - 1)
-        let row = min(max(Int((p.y - r.minY) / cellSize.height), 0), Self.rows - 1)
-        return row * Self.columns + col
+        let col = min(max(Int((p.x - r.minX) / cellSize.width), 0), columns - 1)
+        let row = min(max(Int((p.y - r.minY) / cellSize.height), 0), rows - 1)
+        return row * columns + col
     }
 }
 
@@ -189,7 +205,33 @@ final class LaunchpadModel: ObservableObject {
         didSet { Preferences.hotCorner = hotCorner; onSettingsChanged?() }
     }
 
+    @Published var appearance: AppearanceSettings = Preferences.appearance {
+        didSet {
+            guard appearance != oldValue else { return }
+            Preferences.appearance = appearance
+            if appearance.columns * appearance.rows != oldValue.columns * oldValue.rows {
+                normalize()
+                save()
+            }
+        }
+    }
+    @Published var showMenuBarIcon: Bool = Preferences.showMenuBarIcon {
+        didSet {
+            Preferences.showMenuBarIcon = showMenuBarIcon
+            if !showMenuBarIcon && !showDockIcon { showDockIcon = true }
+            onSettingsChanged?()
+        }
+    }
+    @Published var showDockIcon: Bool = Preferences.showDockIcon {
+        didSet {
+            Preferences.showDockIcon = showDockIcon
+            if !showMenuBarIcon && !showDockIcon { showMenuBarIcon = true }
+            onSettingsChanged?()
+        }
+    }
+
     var isRenamingFolder = false
+    var openSettingsHandler: (() -> Void)?
     var viewSize = CGSize(width: 1440, height: 900)
     weak var searchField: NSTextField?
     var hideHandler: (() -> Void)?
@@ -207,7 +249,8 @@ final class LaunchpadModel: ObservableObject {
     private var lastWheel = Date.distantPast
     private var toastWork: DispatchWorkItem?
 
-    var metrics: GridMetrics { GridMetrics(size: viewSize) }
+    var metrics: GridMetrics { GridMetrics(size: viewSize, appearance: appearance) }
+    var perPage: Int { max(appearance.columns * appearance.rows, 1) }
 
     init() {
         let loaded = load()
@@ -300,8 +343,8 @@ final class LaunchpadModel: ObservableObject {
         var result: [[Item]] = []
         var i = 0
         while i < items.count {
-            result.append(Array(items[i..<min(i + GridMetrics.perPage, items.count)]))
-            i += GridMetrics.perPage
+            result.append(Array(items[i..<min(i + perPage, items.count)]))
+            i += perPage
         }
         return result.isEmpty ? [[]] : result
     }
@@ -328,7 +371,7 @@ final class LaunchpadModel: ObservableObject {
         let missing = sortedByName(infos.filter { !placed.contains($0.id) })
         for info in missing {
             if newPages.isEmpty { newPages.append([]) }
-            if newPages[newPages.count - 1].count >= GridMetrics.perPage { newPages.append([]) }
+            if newPages[newPages.count - 1].count >= perPage { newPages.append([]) }
             newPages[newPages.count - 1].append(.app(info.id))
         }
         pages = newPages
@@ -340,9 +383,9 @@ final class LaunchpadModel: ObservableObject {
     private func normalize() {
         var i = 0
         while i < pages.count {
-            if pages[i].count > GridMetrics.perPage {
-                let overflow = Array(pages[i][GridMetrics.perPage...])
-                pages[i].removeSubrange(GridMetrics.perPage...)
+            if pages[i].count > perPage {
+                let overflow = Array(pages[i][perPage...])
+                pages[i].removeSubrange(perPage...)
                 if i + 1 < pages.count {
                     pages[i + 1].insert(contentsOf: overflow, at: 0)
                 } else {
@@ -430,7 +473,7 @@ final class LaunchpadModel: ObservableObject {
             list.insert(nil, at: min(max(d.insertIndex, 0), list.count))
         }
         var result: [Slot] = []
-        for (i, it) in list.enumerated() where i < GridMetrics.perPage {
+        for (i, it) in list.enumerated() where i < perPage {
             if let it { result.append(Slot(item: it, index: i)) }
         }
         return result
@@ -585,9 +628,9 @@ final class LaunchpadModel: ObservableObject {
     func moveSelection(dx: Int, dy: Int) {
         guard drag == nil else { return }
         if !search.isEmpty {
-            let n = min(searchResults.count, GridMetrics.perPage)
+            let n = min(searchResults.count, perPage)
             guard n > 0 else { return }
-            let i = (selectedIndex ?? 0) + dx + dy * GridMetrics.columns
+            let i = (selectedIndex ?? 0) + dx + dy * appearance.columns
             selectedIndex = max(0, min(n - 1, i))
             return
         }
@@ -614,7 +657,7 @@ final class LaunchpadModel: ObservableObject {
                 return
             }
         } else {
-            let j = i + dy * GridMetrics.columns
+            let j = i + dy * appearance.columns
             if j >= 0 && j < count { i = j }
         }
         selectedIndex = i

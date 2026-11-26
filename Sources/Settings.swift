@@ -52,7 +52,94 @@ enum HotCorner: String, CaseIterable, Identifiable {
     }
 }
 
+struct AppearanceSettings: Equatable {
+    var columns: Int
+    var rows: Int
+    var iconScale: Double       // 0.5 … 1.5 (1 = jak w klasycznym Launchpadzie)
+    var labelFontSize: Double   // punkty
+
+    static let standard = AppearanceSettings(columns: 7, rows: 5, iconScale: 1.0, labelFontSize: 13)
+
+    static let columnRange = 4...12
+    static let rowRange = 3...8
+    static let iconScaleRange = 0.5...1.5
+    static let fontRange = 9.0...20.0
+}
+
 enum Preferences {
+    private static var d: UserDefaults { .standard }
+
+    static var appearance: AppearanceSettings {
+        get {
+            let s = AppearanceSettings.standard
+            let cols = d.object(forKey: "columns") as? Int ?? s.columns
+            let rows = d.object(forKey: "rows") as? Int ?? s.rows
+            let scale = d.object(forKey: "iconScale") as? Double ?? s.iconScale
+            let font = d.object(forKey: "labelFontSize") as? Double ?? s.labelFontSize
+            return AppearanceSettings(
+                columns: min(max(cols, AppearanceSettings.columnRange.lowerBound), AppearanceSettings.columnRange.upperBound),
+                rows: min(max(rows, AppearanceSettings.rowRange.lowerBound), AppearanceSettings.rowRange.upperBound),
+                iconScale: min(max(scale, AppearanceSettings.iconScaleRange.lowerBound), AppearanceSettings.iconScaleRange.upperBound),
+                labelFontSize: min(max(font, AppearanceSettings.fontRange.lowerBound), AppearanceSettings.fontRange.upperBound))
+        }
+        set {
+            d.set(newValue.columns, forKey: "columns")
+            d.set(newValue.rows, forKey: "rows")
+            d.set(newValue.iconScale, forKey: "iconScale")
+            d.set(newValue.labelFontSize, forKey: "labelFontSize")
+        }
+    }
+
+    static var showMenuBarIcon: Bool {
+        get { d.object(forKey: "showMenuBarIcon") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showMenuBarIcon") }
+    }
+
+    static var showDockIcon: Bool {
+        get { d.object(forKey: "showDockIcon") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showDockIcon") }
+    }
+
+    static var autoCheckUpdates: Bool {
+        get { d.object(forKey: "autoCheckUpdates") as? Bool ?? true }
+        set { d.set(newValue, forKey: "autoCheckUpdates") }
+    }
+
+    static var lastUpdateCheck: Date? {
+        get { d.object(forKey: "lastUpdateCheck") as? Date }
+        set { d.set(newValue, forKey: "lastUpdateCheck") }
+    }
+
+    static var skippedBuild: Int {
+        get { d.integer(forKey: "skippedBuild") }
+        set { d.set(newValue, forKey: "skippedBuild") }
+    }
+
+    /// Token GitHuba trzymany w pliku z uprawnieniami 0600 (pęk kluczy pytałby o zgodę po każdej aktualizacji,
+    /// bo aplikacja nie ma stałego podpisu dewelopera).
+    private static var tokenURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("LaunchpadClassic", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("github-token")
+    }
+
+    static var githubToken: String? {
+        get {
+            guard let s = try? String(contentsOf: tokenURL, encoding: .utf8) else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        set {
+            let fm = FileManager.default
+            if let v = newValue?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
+                fm.createFile(atPath: tokenURL.path, contents: Data(v.utf8), attributes: [.posixPermissions: 0o600])
+            } else {
+                try? fm.removeItem(at: tokenURL)
+            }
+        }
+    }
+
     static var hotKey: HotKeyOption {
         get { HotKeyOption(rawValue: UserDefaults.standard.string(forKey: "hotKey") ?? "") ?? .ctrlCmdL }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "hotKey") }

@@ -27,6 +27,12 @@ xcrun swiftc -O -swift-version 5 -parse-as-library \
   -o "$APP/Contents/MacOS/$EXEC"
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+BUILD_NUMBER="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-0}}"
+/usr/libexec/PlistBuddy \
+  -c "Set :CFBundleVersion $BUILD_NUMBER" \
+  -c "Set :CFBundleShortVersionString 1.$BUILD_NUMBER" \
+  "$APP/Contents/Info.plist"
+echo "▸ Wersja: 1.$BUILD_NUMBER (build $BUILD_NUMBER)"
 
 echo "▸ Ikona…"
 if xcrun swift Tools/MakeIcon.swift "$BUILD/icon_1024.png" 2>/dev/null; then

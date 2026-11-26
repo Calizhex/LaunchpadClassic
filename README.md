@@ -30,12 +30,15 @@ Następnie przeciągnij **Launchpad Classic** z /Applications do Docka (w miejsc
 - Domyślny układ: aplikacje Apple, folder „Inne” z narzędziami systemowymi, potem pozostałe alfabetycznie.
 - Przy pierwszym uruchomieniu program próbuje zaimportować Twój stary układ z bazy dawnego Launchpada, jeśli przetrwała aktualizację.
 
-## Ustawienia (prawy klik na tle)
+## Ustawienia
 
-- **Skrót klawiszowy**: domyślnie ⌃⌘L, do wyboru ⌥⌘L, ⌥ Spacja, ⌃⌥ Spacja.
-- **Gorący narożnik**: dowolny róg ekranu. Wyłącz systemowy narożnik w tym samym rogu, żeby się nie gryzły.
-- **Otwieraj przy logowaniu**
-- Odśwież listę aplikacji / Importuj układ ze starego Launchpada / Ułóż alfabetycznie.
+Okno ustawień otworzysz z ikony na pasku menu (u góry ekranu), skrótem ⌘, w jej menu albo prawym kliknięciem na tle Launchpada.
+
+- **Wygląd**: liczba kolumn (4–12) i wierszy (3–8), wielkość ikon (50–150%), wielkość podpisów (9–20 pt) i podgląd na żywo.
+- **Ogólne**: skrót klawiszowy (domyślnie ⌃⌘L), gorący narożnik, otwieranie przy logowaniu, ikona na pasku menu i w Docku, porządkowanie układu.
+- **Aktualizacje**: wersja zainstalowana i najnowsza, automatyczne sprawdzanie co 6 godzin z powiadomieniem,
+  przycisk „Sprawdź teraz” i „Pobierz i zainstaluj” (podmienia aplikację i uruchamia ją ponownie).
+  Repozytorium jest prywatne, więc trzeba raz wkleić token GitHuba tylko do odczytu (instrukcja jest w zakładce).
 
 Układ zapisuje się w `~/Library/Application Support/LaunchpadClassic/layout.json`, a przed resetem lub importem robiona jest kopia `layout.backup.json`.
 

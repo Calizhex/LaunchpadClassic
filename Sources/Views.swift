@@ -17,7 +17,7 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let m = GridMetrics(size: geo.size)
+            let m = GridMetrics(size: geo.size, appearance: model.appearance)
             ZStack(alignment: .topLeading) {
                 BackgroundView(image: model.wallpaper)
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -66,6 +66,8 @@ struct RootView: View {
 
     @ViewBuilder
     private var settingsMenu: some View {
+        Button("Ustawienia…") { model.openSettingsHandler?() }
+        Divider()
         Menu("Skrót klawiszowy") {
             ForEach(HotKeyOption.allCases) { option in
                 Toggle(option.title, isOn: Binding(
@@ -161,7 +163,7 @@ struct SearchResultsView: View {
     let m: GridMetrics
 
     var body: some View {
-        let results = Array(model.searchResults.prefix(GridMetrics.perPage))
+        let results = Array(model.searchResults.prefix(m.perPage))
         ZStack(alignment: .topLeading) {
             if results.isEmpty {
                 Text("Brak wyników")

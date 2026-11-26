@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = makeMainMenu()
         let c = LaunchpadController()
         controller = c
+        c.startServices()
         // Po zalogowaniu (start z elementów logowania) nie pokazujemy nakładki od razu.
         if ProcessInfo.processInfo.systemUptime > 120 {
             c.show()
@@ -74,10 +75,16 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
     private var monitors: [Any] = []
     private var pendingHide: DispatchWorkItem?
     private var wallpaperURL: URL?
+    let updater: Updater
+    private let settings: SettingsWindowController
+    private let statusBar: StatusBarController
 
     override init() {
         model = LaunchpadModel()
         hotCornerMonitor = HotCornerMonitor()
+        updater = Updater()
+        settings = SettingsWindowController(model: model, updater: updater)
+        statusBar = StatusBarController(updater: updater)
         let frame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         window = OverlayPanel(contentRect: frame,
                               styleMask: [.borderless, .nonactivatingPanel],
@@ -107,6 +114,15 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
         model.onSettingsChanged = { [weak self] in self?.applySettings() }
         hotCornerMonitor.action = { [weak self] in self?.toggle() }
         HotKeyCenter.shared.action = { [weak self] in self?.toggle() }
+        model.openSettingsHandler = { [weak self] in self?.openSettings(nil) }
+        updater.onOpenUpdates = { [weak self] in self?.openSettings(.updates) }
+        updater.onStatusChange = { [weak self] in self?.statusBar.refreshIcon() }
+        statusBar.onOpen = { [weak self] in self?.show() }
+        statusBar.onSettings = { [weak self] tab in self?.openSettings(tab) }
+        statusBar.hotKeyTitle = { [weak self] in
+            guard let self, self.model.hotKey != .none else { return "" }
+            return self.model.hotKey.title
+        }
 
         installMonitors()
         hotCornerMonitor.start()
@@ -116,6 +132,25 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
     private func applySettings() {
         HotKeyCenter.shared.register(model.hotKey)
         hotCornerMonitor.corner = model.hotCorner
+        statusBar.setVisible(model.showMenuBarIcon)
+        let policy: NSApplication.ActivationPolicy = model.showDockIcon ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
+    }
+
+    func startServices() {
+        updater.start()
+    }
+
+    func openSettings(_ tab: SettingsTab?) {
+        if model.visible {
+            model.resetForHide()
+            model.visible = false
+            pendingHide?.cancel()
+            window.orderOut(nil)
+        }
+        settings.show(tab: tab)
     }
 
     // MARK: Pokazywanie / ukrywanie
@@ -153,7 +188,7 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let self, !self.model.visible else { return }
                 self.window.orderOut(nil)
-                if NSApp.isActive { NSApp.hide(nil) }
+                if NSApp.isActive && !self.settings.isVisible { NSApp.hide(nil) }
             }
         }
         pendingHide = work
