@@ -24,15 +24,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.updater = updater
     }
 
+    static let size = NSSize(width: 600, height: 680)
+
     var isVisible: Bool { window?.isVisible ?? false }
 
     func show(tab: SettingsTab? = nil) {
         if let tab { selection.tab = tab }
         if window == nil {
             let host = NSHostingController(rootView: SettingsView(model: model, updater: updater, selection: selection))
+            host.sizingOptions = []
             let w = NSWindow(contentViewController: host)
             w.title = "Ustawienia Launchpad Classic"
             w.styleMask = [.titled, .closable, .miniaturizable]
+            w.setContentSize(Self.size)
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.center()
@@ -62,8 +66,8 @@ struct SettingsView: View {
                 .tabItem { Label("Aktualizacje", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
         }
-        .frame(width: 560)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
     }
 }
 
