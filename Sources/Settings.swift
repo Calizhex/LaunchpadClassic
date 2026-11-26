@@ -135,6 +135,11 @@ enum Preferences {
         set { d.set(newValue, forKey: "showDockIcon") }
     }
 
+    static var showFPS: Bool {
+        get { d.bool(forKey: "showFPS") }
+        set { d.set(newValue, forKey: "showFPS") }
+    }
+
     static var autoCheckUpdates: Bool {
         get { d.object(forKey: "autoCheckUpdates") as? Bool ?? true }
         set { d.set(newValue, forKey: "autoCheckUpdates") }

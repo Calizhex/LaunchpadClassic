@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @main
@@ -76,6 +77,8 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
     private var pendingHide: DispatchWorkItem?
     private var wallpaperURL: URL?
     let updater: Updater
+    private var displayLink: CADisplayLink?
+    private var pendingDragPoint: CGPoint?
     private let settings: SettingsWindowController
     private let statusBar: StatusBarController
 
@@ -109,6 +112,14 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
         let host = FirstMouseHostingView(rootView: RootView(model: model))
         host.sizingOptions = []
         window.contentView = host
+
+        // Zegar klatek w rytmie ekranu (ProMotion 120 Hz, Air 60 Hz…). Działa tylko, gdy nakładka jest widoczna.
+        let link = host.displayLink(target: self, selector: #selector(frameTick(_:)))
+        link.isPaused = true
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+        NotificationCenter.default.addObserver(self, selector: #selector(powerStateChanged),
+                                               name: .NSProcessInfoPowerStateDidChange, object: nil)
 
         model.hideHandler = { [weak self] in self?.hide() }
         model.onSettingsChanged = { [weak self] in self?.applySettings() }
@@ -149,6 +160,7 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
             model.visible = false
             pendingHide?.cancel()
             window.orderOut(nil)
+            displayLink?.isPaused = true
         }
         settings.show(tab: tab)
     }
@@ -171,6 +183,9 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
         }
         window.setFrame(screen.frame, display: false)
         model.viewSize = screen.frame.size
+        displayLink?.preferredFrameRateRange = model.clock.configure(for: screen)
+        model.clock.reset()
+        displayLink?.isPaused = false
         loadWallpaper(for: screen)
         model.rescanAsync()
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
@@ -188,6 +203,7 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let self, !self.model.visible else { return }
                 self.window.orderOut(nil)
+                self.displayLink?.isPaused = true
                 if NSApp.isActive && !self.settings.isVisible { NSApp.hide(nil) }
             }
         }
@@ -256,13 +272,36 @@ final class LaunchpadController: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated { () -> NSEvent? in
                 guard let self, self.model.drag != nil else { return event }
                 if event.type == .leftMouseDragged {
-                    self.model.updateDrag(to: self.rootPoint(event))
+                    // Pozycję nakładamy raz na klatkę (frameTick) – mysz z wysokim próbkowaniem nie zatyka renderowania.
+                    self.pendingDragPoint = self.rootPoint(event)
                 } else {
+                    if let p = self.pendingDragPoint {
+                        self.pendingDragPoint = nil
+                        self.model.updateDrag(to: p)
+                    }
                     self.model.endDrag()
                 }
                 return event
             }
         }) { monitors.append(m) }
+    }
+
+    @objc private func frameTick(_ link: CADisplayLink) {
+        if let p = pendingDragPoint {
+            pendingDragPoint = nil
+            model.updateDrag(to: p)
+        }
+        model.applyPendingScroll()
+        model.clock.frame(timestamp: link.targetTimestamp, animating: model.editing)
+    }
+
+    @objc private func powerStateChanged() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.model.visible, let screen = self.window.screen else { return }
+                self.displayLink?.preferredFrameRateRange = self.model.clock.configure(for: screen)
+            }
+        }
     }
 
     private func rootPoint(_ event: NSEvent) -> CGPoint {

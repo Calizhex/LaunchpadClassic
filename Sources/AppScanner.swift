@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import CoreImage
 
 struct AppInfo: Sendable, Hashable {
@@ -103,6 +104,8 @@ enum AppScanner {
 final class IconCache {
     static let shared = IconCache()
     private var cache: [String: NSImage] = [:]
+    private var bitmaps: [String: CGImage] = [:]
+    private static let buckets = [64, 128, 256, 512]
 
     func icon(for path: String) -> NSImage {
         if let cached = cache[path] { return cached }
@@ -111,7 +114,41 @@ final class IconCache {
         return image
     }
 
-    func purge() { cache.removeAll() }
+    /// Ikona jako gotowa bitmapa w rozmiarze dopasowanym do ekranu (Retina).
+    /// Rysowanie gotowej bitmapy jest dużo tańsze niż wielorozdzielczościowego NSImage –
+    /// ważne przy 120 klatkach na sekundę.
+    func image(for path: String, points: CGFloat) -> Image {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let needed = Int((points * scale).rounded(.up))
+        let px = Self.buckets.first(where: { $0 >= needed }) ?? Self.buckets[Self.buckets.count - 1]
+        let key = "\(path)#\(px)"
+        if let cg = bitmaps[key] {
+            return Image(decorative: cg, scale: 1)
+        }
+        let source = icon(for: path)
+        guard let cg = Self.render(source, pixels: px) else {
+            return Image(nsImage: source)
+        }
+        bitmaps[key] = cg
+        return Image(decorative: cg, scale: 1)
+    }
+
+    private static func render(_ image: NSImage, pixels px: Int) -> CGImage? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        image.draw(in: NSRect(x: 0, y: 0, width: px, height: px), from: .zero, operation: .copy, fraction: 1)
+        NSGraphicsContext.restoreGraphicsState()
+        return ctx.makeImage()
+    }
+
+    func purge() {
+        cache.removeAll()
+        bitmaps.removeAll()
+    }
 }
 
 enum Wallpaper {

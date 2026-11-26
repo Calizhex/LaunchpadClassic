@@ -289,6 +289,7 @@ struct GeneralTab: View {
                     get: { loginEnabled },
                     set: { LoginItem.set($0); loginEnabled = LoginItem.isEnabled }))
             }
+            PerformanceSection(clock: model.clock)
             Section("Ikona aplikacji") {
                 Toggle("Pokazuj na pasku menu", isOn: $model.showMenuBarIcon)
                 Toggle("Pokazuj w Docku", isOn: $model.showDockIcon)
@@ -307,6 +308,24 @@ struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+struct PerformanceSection: View {
+    @ObservedObject var clock: FrameClock
+
+    var body: some View {
+        let hz = NSScreen.main?.maximumFramesPerSecond ?? 60
+        let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        Section("Płynność") {
+            LabeledContent("Ekran", value: hz > 60 ? "\(hz) Hz (ProMotion)" : "\(hz) Hz")
+            LabeledContent("Animacje", value: lowPower ? "60 Hz – tryb niskiego zużycia energii" : "\(hz) Hz – dopasowane do ekranu")
+            Toggle("Pokazuj licznik klatek (FPS)", isOn: $clock.showCounter)
+            Text("Launchpad sam dopasowuje się do ekranu: na MacBooku Pro z ProMotion działa w 120 Hz, na MacBooku Air i zwykłych monitorach w 60 Hz. W trybie niskiego zużycia energii ogranicza się do 60 Hz.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

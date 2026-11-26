@@ -233,6 +233,11 @@ final class LaunchpadModel: ObservableObject {
         didSet { Preferences.customPresets = customPresets }
     }
 
+    let clock: FrameClock
+    let dragLayer: DragLayer
+    /// Przesunięcie z gestu przewijania czekające na następną klatkę ekranu.
+    private var pendingScroll: CGFloat = 0
+
     var isRenamingFolder = false
     var openSettingsHandler: (() -> Void)?
     var viewSize = CGSize(width: 1440, height: 900)
@@ -256,6 +261,8 @@ final class LaunchpadModel: ObservableObject {
     var perPage: Int { max(appearance.columns * appearance.rows, 1) }
 
     init() {
+        clock = FrameClock()
+        dragLayer = DragLayer()
         let loaded = load()
         let infos = AppScanner.scan()
         apps = Dictionary(infos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -643,14 +650,15 @@ final class LaunchpadModel: ObservableObject {
             switch e.phase {
             case .began:
                 scrollLastDelta = 0
+                pendingScroll = 0
                 pageOffset = 0
             case .changed:
-                let atStart = currentPage == 0 && pageOffset + delta > 0
-                let atEnd = currentPage == pages.count - 1 && pageOffset + delta < 0
-                pageOffset += (atStart || atEnd) ? delta * 0.3 : delta
+                // Zbieramy przesunięcie i nakładamy je raz na klatkę ekranu (applyPendingScroll).
+                pendingScroll += delta
                 scrollLastDelta = delta
-                selectedIndex = nil
+                if selectedIndex != nil { selectedIndex = nil }
             case .ended, .cancelled:
+                applyPendingScroll()
                 let w = viewSize.width
                 var target = currentPage
                 if pageOffset < -w * 0.12 || scrollLastDelta < -14 { target += 1 }
@@ -668,6 +676,16 @@ final class LaunchpadModel: ObservableObject {
             lastWheel = Date()
             go(to: delta < 0 ? currentPage + 1 : currentPage - 1)
         }
+    }
+
+    /// Wołane raz na klatkę ekranu.
+    func applyPendingScroll() {
+        guard pendingScroll != 0 else { return }
+        let delta = pendingScroll
+        pendingScroll = 0
+        let atStart = currentPage == 0 && pageOffset + delta > 0
+        let atEnd = currentPage == pages.count - 1 && pageOffset + delta < 0
+        pageOffset += (atStart || atEnd) ? delta * 0.3 : delta
     }
 
     func moveSelection(dx: Int, dy: Int) {
@@ -748,6 +766,7 @@ final class LaunchpadModel: ObservableObject {
         search = ""
         searchField?.stringValue = ""
         selectedIndex = nil
+        pendingScroll = 0
         pageOffset = 0
     }
 
@@ -879,14 +898,16 @@ final class LaunchpadModel: ObservableObject {
         }
         selectedIndex = nil
         pressedID = nil
+        dragLayer.position = state.iconPosition
         if !editing { withAnimation(.easeOut(duration: 0.2)) { editing = true } }
         drag = state
     }
 
+    /// Wołane raz na klatkę ekranu (CADisplayLink), z ostatnią pozycją kursora.
     func updateDrag(to location: CGPoint) {
         guard var d = drag else { return }
-        d.location = location
-        let iconPos = d.iconPosition
+        let iconPos = CGPoint(x: location.x - d.grabOffset.width, y: location.y - d.grabOffset.height)
+        dragLayer.position = iconPos
 
         // Wewnątrz otwartego folderu
         if let fid = d.folderID, let f = folder(fid) {
@@ -895,7 +916,7 @@ final class LaunchpadModel: ObservableObject {
                 if let k = fm.cellIndex(at: iconPos) {
                     d.insertIndex = min(folderPage * fm.perPage + k, f.apps.count)
                 }
-                drag = d
+                commitDrag(d)
                 return
             }
             // Wyciągnięcie ikony poza folder: zamknij folder, kontynuuj na stronie
@@ -907,8 +928,6 @@ final class LaunchpadModel: ObservableObject {
                 openFolderID = nil
                 dissolveIfNeeded(fid)
             }
-        } else {
-            drag = d
         }
 
         handleEdge(location)
@@ -924,11 +943,20 @@ final class LaunchpadModel: ObservableObject {
                 return
             }
             clearHover()
-            drag?.insertIndex = min(k, pages[currentPage].count)
+            d.insertIndex = min(k, pages[currentPage].count)
         } else {
             clearHover()
             let placeholder = min(max(d.insertIndex, 0), pages[currentPage].count)
-            if k != placeholder { drag?.insertIndex = pages[currentPage].count }
+            if k != placeholder { d.insertIndex = pages[currentPage].count }
+        }
+        commitDrag(d)
+    }
+
+    /// Publikuje stan przeciągania tylko wtedy, gdy siatka musi się przestawić.
+    private func commitDrag(_ d: DragState) {
+        guard let current = drag else { return }
+        if current.insertIndex != d.insertIndex || current.folderID != d.folderID {
+            drag = d
         }
     }
 

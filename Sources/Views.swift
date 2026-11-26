@@ -39,11 +39,15 @@ struct RootView: View {
                 }
 
                 if let d = model.drag {
-                    DraggedIcon(model: model, item: d.item, size: m.iconSize)
-                        .position(d.iconPosition)
+                    DraggedIcon(model: model, layer: model.dragLayer, item: d.item, size: m.iconSize)
                         .allowsHitTesting(false)
                         .zIndex(3)
                 }
+
+                FPSBadge(clock: model.clock)
+                    .position(x: 92, y: 26)
+                    .allowsHitTesting(false)
+                    .zIndex(5)
 
                 if let toast = model.toast {
                     Text(toast)
@@ -132,17 +136,35 @@ struct PagesView: View {
     @ObservedObject var model: LaunchpadModel
     let m: GridMetrics
 
+    /// Rysujemy tylko bieżącą stronę i jej sąsiadów – reszta jest poza ekranem.
+    private var visiblePages: [Int] {
+        let last = model.pages.count - 1
+        guard last >= 0 else { return [] }
+        let current = min(max(model.currentPage, 0), last)
+        return Array(max(0, current - 1)...min(last, current + 1))
+    }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: !model.editing)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<model.pages.count, id: \.self) { p in
-                    PageView(model: model, page: p, m: m, time: model.editing ? t : nil)
-                        .offset(x: CGFloat(p - model.currentPage) * m.size.width + model.pageOffset)
-                }
+        ZStack(alignment: .topLeading) {
+            ForEach(visiblePages, id: \.self) { p in
+                LivePage(model: model, clock: model.clock, page: p, m: m)
+                    .offset(x: CGFloat(p - model.currentPage) * m.size.width + model.pageOffset)
             }
-            .frame(width: m.size.width, height: m.size.height, alignment: .topLeading)
         }
+        .frame(width: m.size.width, height: m.size.height, alignment: .topLeading)
+    }
+}
+
+/// Strona, która w trybie edycji „trzęsie się” w rytmie odświeżania ekranu.
+struct LivePage: View {
+    @ObservedObject var model: LaunchpadModel
+    @ObservedObject var clock: FrameClock
+    let page: Int
+    let m: GridMetrics
+
+    var body: some View {
+        let live = model.editing && page == model.currentPage
+        PageView(model: model, page: page, m: m, time: live ? clock.time : nil)
     }
 }
 
@@ -263,7 +285,7 @@ struct ItemIcon: View {
     var body: some View {
         switch item {
         case .app(let id):
-            Image(nsImage: IconCache.shared.icon(for: id))
+            IconCache.shared.image(for: id, points: size)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
@@ -290,7 +312,7 @@ struct FolderIcon: View {
                         .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                 )
             ForEach(Array(folder.apps.prefix(9).enumerated()), id: \.offset) { i, id in
-                Image(nsImage: IconCache.shared.icon(for: id))
+                IconCache.shared.image(for: id, points: mini)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: mini, height: mini)
@@ -304,7 +326,8 @@ struct FolderIcon: View {
 }
 
 struct DraggedIcon: View {
-    @ObservedObject var model: LaunchpadModel
+    let model: LaunchpadModel
+    @ObservedObject var layer: DragLayer
     let item: Item
     let size: CGFloat
 
@@ -313,6 +336,28 @@ struct DraggedIcon: View {
             .scaleEffect(1.08)
             .opacity(0.92)
             .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
+            .position(layer.position)
+    }
+}
+
+/// Licznik klatek (włączany w Ustawieniach → Ogólne).
+struct FPSBadge: View {
+    @ObservedObject var clock: FrameClock
+
+    var body: some View {
+        if clock.showCounter {
+            HStack(spacing: 6) {
+                Text("\(clock.fps) FPS")
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundColor(clock.fps >= Int(Double(clock.targetFPS) * 0.9) ? .green : .orange)
+                Text("cel \(clock.targetFPS) · ekran \(clock.screenMaxFPS) Hz")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundColor(.white.opacity(0.75))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.black.opacity(0.45)))
+        }
     }
 }
 
@@ -357,19 +402,7 @@ struct FolderOverlay: View {
                     model.isRenamingFolder = focused
                 }
 
-            TimelineView(.animation(minimumInterval: nil, paused: !model.editing)) { ctx in
-                let t: Double? = model.editing ? ctx.date.timeIntervalSinceReferenceDate : nil
-                ZStack(alignment: .topLeading) {
-                    ForEach(slots) { slot in
-                        ItemCell(model: model, item: slot.item, context: .folder(folder.id), index: slot.index,
-                                 m: m, iconCenter: fm.iconCenter(slot.index),
-                                 angle: wiggleAngle(slot.item.id, time: t))
-                            .position(fm.cellCenter(slot.index))
-                    }
-                }
-                .frame(width: m.size.width, height: m.size.height, alignment: .topLeading)
-                .animation(.easeInOut(duration: 0.22), value: slots.map { $0.id })
-            }
+            FolderGrid(model: model, clock: model.clock, folderID: folder.id, slots: slots, fm: fm, m: m)
 
             if fm.pageCount > 1 {
                 PageDots(count: fm.pageCount, current: model.folderPage) { p in
@@ -379,6 +412,29 @@ struct FolderOverlay: View {
             }
         }
         .frame(width: m.size.width, height: m.size.height, alignment: .topLeading)
+    }
+}
+
+struct FolderGrid: View {
+    @ObservedObject var model: LaunchpadModel
+    @ObservedObject var clock: FrameClock
+    let folderID: String
+    let slots: [Slot]
+    let fm: FolderMetrics
+    let m: GridMetrics
+
+    var body: some View {
+        let t: Double? = model.editing ? clock.time : nil
+        ZStack(alignment: .topLeading) {
+            ForEach(slots) { slot in
+                ItemCell(model: model, item: slot.item, context: .folder(folderID), index: slot.index,
+                         m: m, iconCenter: fm.iconCenter(slot.index),
+                         angle: wiggleAngle(slot.item.id, time: t))
+                    .position(fm.cellCenter(slot.index))
+            }
+        }
+        .frame(width: m.size.width, height: m.size.height, alignment: .topLeading)
+        .animation(.easeInOut(duration: 0.22), value: slots.map { $0.id })
     }
 }
 
