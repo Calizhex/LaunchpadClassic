@@ -68,6 +68,15 @@ struct RootView: View {
     private var settingsMenu: some View {
         Button("Ustawienia…") { model.openSettingsHandler?() }
         Divider()
+        Menu("Układ siatki") {
+            ForEach(model.allPresets) { preset in
+                Toggle("\(preset.name)  (\(preset.appearance.columns)×\(preset.appearance.rows))", isOn: Binding(
+                    get: { model.appearance == preset.appearance },
+                    set: { if $0 { model.applyPreset(preset) } }))
+            }
+            Divider()
+            Button("Uzupełnij puste miejsca") { model.fillGaps() }
+        }
         Menu("Skrót klawiszowy") {
             ForEach(HotKeyOption.allCases) { option in
                 Toggle(option.title, isOn: Binding(

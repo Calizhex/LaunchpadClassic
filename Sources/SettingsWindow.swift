@@ -24,7 +24,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.updater = updater
     }
 
-    static let size = NSSize(width: 600, height: 680)
+    static let size = NSSize(width: 620, height: 760)
 
     var isVisible: Bool { window?.isVisible ?? false }
 
@@ -75,6 +75,9 @@ struct SettingsView: View {
 
 struct AppearanceTab: View {
     @ObservedObject var model: LaunchpadModel
+    @State private var newPresetName = ""
+
+    private let presetColumns = [GridItem(.adaptive(minimum: 118), spacing: 10)]
 
     var body: some View {
         let a = model.appearance
@@ -83,6 +86,38 @@ struct AppearanceTab: View {
                 GridPreview(model: model)
                     .frame(height: 230)
                     .frame(maxWidth: .infinity)
+            }
+            Section("Gotowe układy") {
+                LazyVGrid(columns: presetColumns, spacing: 10) {
+                    ForEach(GridPreset.builtIn) { preset in
+                        PresetCard(preset: preset, active: a == preset.appearance) {
+                            model.applyPreset(preset)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Moje układy") {
+                if model.customPresets.isEmpty {
+                    Text("Ustaw siatkę po swojemu, nadaj jej nazwę i zapisz – wrócisz do niej jednym kliknięciem.")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                } else {
+                    LazyVGrid(columns: presetColumns, spacing: 10) {
+                        ForEach(model.customPresets) { preset in
+                            PresetCard(preset: preset, active: a == preset.appearance,
+                                       action: { model.applyPreset(preset) },
+                                       onDelete: { model.deletePreset(preset) })
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                HStack {
+                    TextField("Nazwa, np. „Praca – monitor”", text: $newPresetName)
+                        .onSubmit(savePreset)
+                    Button("Zapisz bieżący układ", action: savePreset)
+                        .disabled(newPresetName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
             }
             Section("Ikony na stronie") {
                 Stepper(value: $model.appearance.columns, in: AppearanceSettings.columnRange) {
@@ -107,11 +142,97 @@ struct AppearanceTab: View {
                     .foregroundColor(.secondary)
             }
             HStack {
+                Button("Uzupełnij puste miejsca") { model.fillGaps() }
                 Spacer()
                 Button("Przywróć domyślne") { model.appearance = .standard }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func savePreset() {
+        model.saveCurrentPreset(named: newPresetName)
+        newPresetName = ""
+    }
+}
+
+struct PresetCard: View {
+    let preset: GridPreset
+    let active: Bool
+    let action: () -> Void
+    var onDelete: (() -> Void)? = nil
+    @State private var hovering = false
+
+    var body: some View {
+        let a = preset.appearance
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        Button(action: action) {
+            VStack(spacing: 6) {
+                GridGlyph(columns: a.columns, rows: a.rows, scale: a.iconScale)
+                    .frame(width: 86, height: 54)
+                Text(preset.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text("\(a.columns)×\(a.rows) · \(Int((a.iconScale * 100).rounded()))% · \(Int(a.labelFontSize)) pt")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity)
+            .background(shape.fill(active ? Color.accentColor.opacity(0.14) : Color.primary.opacity(hovering ? 0.07 : 0.04)))
+            .overlay(shape.stroke(active ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: active ? 2 : 0.5))
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .overlay(alignment: .topTrailing) {
+            if let onDelete, hovering {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Usuń układ")
+                .padding(5)
+            }
+        }
+        .contextMenu {
+            if let onDelete {
+                Button("Usuń układ „\(preset.name)”", role: .destructive, action: onDelete)
+            }
+        }
+    }
+}
+
+/// Miniaturka siatki: tyle kwadracików, ile ikon mieści się na stronie.
+struct GridGlyph: View {
+    let columns: Int
+    let rows: Int
+    let scale: Double
+
+    var body: some View {
+        GeometryReader { g in
+            let inset: CGFloat = 5
+            let w = g.size.width - inset * 2
+            let h = g.size.height - inset * 2
+            let cw = w / CGFloat(max(columns, 1))
+            let ch = h / CGFloat(max(rows, 1))
+            let dot = min(cw, ch) * CGFloat(0.45 + 0.35 * (scale - 0.5))
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+                ForEach(0..<(columns * rows), id: \.self) { i in
+                    RoundedRectangle(cornerRadius: dot * 0.28, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.8))
+                        .frame(width: dot, height: dot)
+                        .position(x: inset + (CGFloat(i % columns) + 0.5) * cw,
+                                  y: inset + (CGFloat(i / columns) + 0.5) * ch)
+                }
+            }
+        }
     }
 }
 
@@ -177,6 +298,7 @@ struct GeneralTab: View {
             }
             Section("Układ") {
                 HStack {
+                    Button("Uzupełnij puste miejsca") { model.fillGaps() }
                     Button("Odśwież listę aplikacji") { model.refreshAll() }
                     Button("Importuj stary układ") { model.importLegacy() }
                     Spacer()

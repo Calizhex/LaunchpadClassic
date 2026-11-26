@@ -52,7 +52,7 @@ enum HotCorner: String, CaseIterable, Identifiable {
     }
 }
 
-struct AppearanceSettings: Equatable {
+struct AppearanceSettings: Equatable, Codable {
     var columns: Int
     var rows: Int
     var iconScale: Double       // 0.5 … 1.5 (1 = jak w klasycznym Launchpadzie)
@@ -66,8 +66,43 @@ struct AppearanceSettings: Equatable {
     static let fontRange = 9.0...20.0
 }
 
+/// Zapisany układ siatki (gotowy albo własny).
+struct GridPreset: Identifiable, Codable, Equatable {
+    var id: String
+    var name: String
+    var appearance: AppearanceSettings
+
+    static let builtIn: [GridPreset] = [
+        GridPreset(id: "classic", name: "Klasyczny",
+                   appearance: AppearanceSettings(columns: 7, rows: 5, iconScale: 1.0, labelFontSize: 13)),
+        GridPreset(id: "comfort", name: "Wygodny",
+                   appearance: AppearanceSettings(columns: 6, rows: 5, iconScale: 1.1, labelFontSize: 13)),
+        GridPreset(id: "large", name: "Duże ikony",
+                   appearance: AppearanceSettings(columns: 6, rows: 4, iconScale: 1.3, labelFontSize: 15)),
+        GridPreset(id: "minimal", name: "Minimalistyczny",
+                   appearance: AppearanceSettings(columns: 5, rows: 3, iconScale: 1.5, labelFontSize: 16)),
+        GridPreset(id: "compact", name: "Kompaktowy",
+                   appearance: AppearanceSettings(columns: 8, rows: 6, iconScale: 0.85, labelFontSize: 12)),
+        GridPreset(id: "monitor", name: "Duży monitor",
+                   appearance: AppearanceSettings(columns: 10, rows: 6, iconScale: 0.9, labelFontSize: 13)),
+        GridPreset(id: "max", name: "Maksimum",
+                   appearance: AppearanceSettings(columns: 12, rows: 8, iconScale: 0.7, labelFontSize: 10)),
+    ]
+}
+
 enum Preferences {
     private static var d: UserDefaults { .standard }
+
+    static var customPresets: [GridPreset] {
+        get {
+            guard let data = d.data(forKey: "customPresets"),
+                  let list = try? JSONDecoder().decode([GridPreset].self, from: data) else { return [] }
+            return list
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) { d.set(data, forKey: "customPresets") }
+        }
+    }
 
     static var appearance: AppearanceSettings {
         get {

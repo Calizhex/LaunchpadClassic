@@ -210,8 +210,7 @@ final class LaunchpadModel: ObservableObject {
             guard appearance != oldValue else { return }
             Preferences.appearance = appearance
             if appearance.columns * appearance.rows != oldValue.columns * oldValue.rows {
-                normalize()
-                save()
+                repack()
             }
         }
     }
@@ -228,6 +227,10 @@ final class LaunchpadModel: ObservableObject {
             if !showMenuBarIcon && !showDockIcon { showMenuBarIcon = true }
             onSettingsChanged?()
         }
+    }
+
+    @Published var customPresets: [GridPreset] = Preferences.customPresets {
+        didSet { Preferences.customPresets = customPresets }
     }
 
     var isRenamingFolder = false
@@ -397,6 +400,48 @@ final class LaunchpadModel: ObservableObject {
         pages.removeAll { $0.isEmpty }
         if pages.isEmpty { pages = [[]] }
         currentPage = min(max(currentPage, 0), pages.count - 1)
+    }
+
+    /// Układa ikony po kolei bez dziur – każda strona (poza ostatnią) jest pełna.
+    func repack() {
+        guard drag == nil else { return }
+        let all = pages.flatMap { $0 }
+        var result: [[Item]] = []
+        var i = 0
+        while i < all.count {
+            result.append(Array(all[i..<min(i + perPage, all.count)]))
+            i += perPage
+        }
+        pages = result.isEmpty ? [[]] : result
+        currentPage = min(currentPage, pages.count - 1)
+        save()
+    }
+
+    func fillGaps() {
+        repack()
+        showToast("Uzupełniono puste miejsca na stronach")
+    }
+
+    // MARK: Układy siatki
+
+    var allPresets: [GridPreset] { GridPreset.builtIn + customPresets }
+
+    func applyPreset(_ preset: GridPreset) {
+        appearance = preset.appearance
+    }
+
+    func saveCurrentPreset(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if let i = customPresets.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            customPresets[i].appearance = appearance
+        } else {
+            customPresets.append(GridPreset(id: UUID().uuidString, name: name, appearance: appearance))
+        }
+    }
+
+    func deletePreset(_ preset: GridPreset) {
+        customPresets.removeAll { $0.id == preset.id }
     }
 
     func rescanAsync() {
